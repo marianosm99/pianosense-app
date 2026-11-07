@@ -1,0 +1,2006 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PianoSense: Entrenador Visual con Micrófono</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tone.js MIDI Parser CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background-color: #090d16;
+      color: #f1f5f9;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+
+    /* Piano Keyboard Styling */
+    .piano-container {
+      position: relative;
+      width: 100%;
+      height: 210px;
+      background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
+      border-radius: 0 0 16px 16px;
+      padding: 6px 4px 8px 4px;
+      box-shadow: inset 0 4px 12px rgba(0,0,0,0.8), 0 10px 25px -5px rgba(0,0,0,0.7);
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    @media (max-width: 640px) {
+      .piano-container {
+        height: 175px;
+      }
+    }
+
+    .white-keys-row {
+      display: grid;
+      grid-template-columns: repeat(14, 1fr);
+      gap: 3px;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      z-index: 1;
+    }
+
+    .white-key {
+      position: relative;
+      background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 88%, #cbd5e1 100%);
+      border: 1px solid #94a3b8;
+      border-radius: 4px 4px 10px 10px;
+      box-shadow: 0 5px 0 #64748b, inset 0 1px 0 #ffffff;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding-bottom: 8px;
+      cursor: pointer;
+      transition: transform 0.06s ease, background 0.1s ease, box-shadow 0.06s ease;
+    }
+
+    .white-key:active, .white-key.key-active {
+      transform: translateY(3px);
+      box-shadow: 0 2px 0 #475569;
+      background: linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%);
+    }
+
+    /* Target Note Highlight (Cyan/Blue Guide) */
+    .white-key.key-target {
+      background: linear-gradient(180deg, #e0f2fe 0%, #38bdf8 60%, #0284c7 100%) !important;
+      border-color: #7dd3fc !important;
+      box-shadow: 0 5px 0 #0369a1, 0 0 22px rgba(56, 189, 248, 0.75) !important;
+      animation: targetPulse 1.2s infinite alternate ease-in-out;
+    }
+
+    /* Correct Hit Highlight (Emerald Green) */
+    .white-key.key-hit {
+      background: linear-gradient(180deg, #d1fae5 0%, #34d399 55%, #059669 100%) !important;
+      border-color: #6ee7b7 !important;
+      box-shadow: 0 2px 0 #047857, 0 0 28px rgba(16, 185, 129, 0.95) !important;
+      transform: translateY(3px);
+    }
+
+    /* Wrong Hit Highlight (Rose/Amber) */
+    .white-key.key-wrong {
+      background: linear-gradient(180deg, #ffe4e6 0%, #fb7185 70%, #e11d48 100%) !important;
+      border-color: #fda4af !important;
+    }
+
+    .black-key {
+      position: absolute;
+      top: 6px;
+      height: 60%;
+      background: linear-gradient(180deg, #334155 0%, #0f172a 75%, #020617 100%);
+      border: 1px solid #475569;
+      border-top: none;
+      border-radius: 0 0 7px 7px;
+      box-shadow: 0 5px 0 #020617, 0 6px 10px rgba(0,0,0,0.6), inset 0 -3px 4px rgba(255,255,255,0.08);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding-bottom: 6px;
+      cursor: pointer;
+      transition: transform 0.06s ease, background 0.1s ease, box-shadow 0.06s ease;
+    }
+
+    .black-key:active, .black-key.key-active {
+      transform: translateY(3px);
+      box-shadow: 0 2px 0 #020617, 0 3px 5px rgba(0,0,0,0.5);
+      background: linear-gradient(180deg, #1e293b 0%, #090d16 100%);
+    }
+
+    .black-key.key-target {
+      background: linear-gradient(180deg, #38bdf8 0%, #0284c7 65%, #0369a1 100%) !important;
+      border-color: #bae6fd !important;
+      box-shadow: 0 5px 0 #0c4a6e, 0 0 22px rgba(56, 189, 248, 0.9) !important;
+      animation: targetPulse 1.2s infinite alternate ease-in-out;
+    }
+
+    .black-key.key-hit {
+      background: linear-gradient(180deg, #34d399 0%, #10b981 65%, #047857 100%) !important;
+      border-color: #a7f3d0 !important;
+      box-shadow: 0 2px 0 #064e3b, 0 0 28px rgba(16, 185, 129, 0.95) !important;
+      transform: translateY(3px);
+    }
+
+    .black-key.key-wrong {
+      background: linear-gradient(180deg, #fb7185 0%, #e11d48 80%, #9f1239 100%) !important;
+    }
+
+    @keyframes targetPulse {
+      0% { filter: brightness(1); }
+      100% { filter: brightness(1.18); }
+    }
+
+    /* Glassmorphism panels */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(51, 65, 85, 0.6);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-cyan-500 selection:text-white">
+
+  <!-- TOP NAVIGATION & HEADER -->
+  <header class="glass-panel sticky top-0 z-30 border-b border-slate-800/80 px-3 py-2.5 sm:px-6">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+      <!-- Brand Title -->
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/25">
+          <svg class="w-5 h-5 text-slate-950" fill="none" stroke="currentColor" stroke-width="2.3" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-extrabold tracking-tight bg-gradient-to-r from-white via-cyan-200 to-blue-400 bg-clip-text text-transparent">
+              PianoSense
+            </h1>
+            <span class="hidden sm:inline-block text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+              Pitch AI + MIDI
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-400 hidden md:block">Entrenador Visual Interactivo con Detección de Piano Real por Micrófono</p>
+        </div>
+      </div>
+
+      <!-- Primary Action Buttons -->
+      <div class="flex items-center flex-wrap gap-2">
+        <!-- Microphone Toggle Button (Featured) -->
+        <button id="btnToggleMic" onclick="toggleMicrophone()" class="flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm transition-all shadow-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 shadow-emerald-500/20 active:scale-95">
+          <span id="micDot" class="w-2.5 h-2.5 rounded-full bg-slate-950 animate-pulse"></span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+          </svg>
+          <span id="micBtnLabel">Activar Micrófono (Piano Real)</span>
+        </button>
+
+        <!-- Open Catalog / Online Search Modal -->
+        <button onclick="openModal('catalogModal')" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all">
+          <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          <span>Explorar / MIDI</span>
+        </button>
+
+        <!-- GitHub APK & Info Guide Button -->
+        <button onclick="openModal('apkModal')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/80 transition-all" title="Cómo exportar a APK desde GitHub">
+          <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+          </svg>
+          <span class="hidden lg:inline">Guía APK / GitHub</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-2.5 sm:px-6 py-3 flex flex-col gap-3">
+
+    <!-- TOP CONTROL BAR: Song Selector, Mode Selector & Game Stats -->
+    <section class="glass-panel rounded-2xl p-3 shadow-xl">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
+        
+        <!-- Song Picker & Mode Controls (7 cols) -->
+        <div class="lg:col-span-7 flex flex-wrap items-center gap-2">
+          <!-- Preinstalled + Loaded Song Dropdown -->
+          <div class="flex-1 min-w-[200px]">
+            <label for="songSelect" class="block text-[10px] uppercase tracking-wider font-semibold text-slate-400 mb-0.5">
+              Canción Activa
+            </label>
+            <select id="songSelect" onchange="selectSong(this.value)" class="w-full bg-slate-900/90 border border-slate-700 text-slate-100 text-xs sm:text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-cyan-400 font-medium">
+              <!-- Populated by JS -->
+            </select>
+          </div>
+
+          <!-- Mode Toggle: Modo Espera vs Escuchar Demo -->
+          <div>
+            <span class="block text-[10px] uppercase tracking-wider font-semibold text-slate-400 mb-0.5">Modo de Juego</span>
+            <div class="inline-flex rounded-xl bg-slate-900 p-1 border border-slate-800">
+              <button id="btnWaitMode" onclick="setPlayMode('wait')" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-cyan-500 text-slate-950 shadow">
+                Modo Espera
+              </button>
+              <button id="btnDemoMode" onclick="setPlayMode('demo')" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-400 hover:text-white">
+                Escuchar Demo
+              </button>
+            </div>
+          </div>
+
+          <!-- Restart & Skip Controls -->
+          <div class="flex items-end gap-1.5 pt-3.5">
+            <button onclick="restartSong()" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Reiniciar canción">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </button>
+            <button onclick="skipCurrentNote()" class="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition" title="Saltar a la siguiente nota">
+              Saltar ⏭
+            </button>
+            <!-- MIDI File Quick Upload -->
+            <label class="cursor-pointer px-2.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 text-xs font-semibold transition flex items-center gap-1" title="Importar archivo .MID o .MIDI">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+              </svg>
+              <span>.MIDI</span>
+              <input type="file" id="midiFileInput" accept=".mid,.midi" class="hidden" onchange="handleMidiUpload(event)" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Progress, Streak & Precision Indicators (5 cols) -->
+        <div class="lg:col-span-5 grid grid-cols-3 gap-2">
+          <!-- Progress -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-[11px] text-slate-400">
+              <span>Progreso</span>
+              <span id="statProgressText" class="font-mono font-bold text-cyan-400">0/0</span>
+            </div>
+            <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden mt-1.5">
+              <div id="statProgressBar" class="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Streak (Racha) -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2 flex items-center justify-between">
+            <div>
+              <span class="block text-[11px] text-slate-400">Racha</span>
+              <span id="statStreak" class="text-base sm:text-lg font-extrabold font-mono text-amber-400">0 🔥</span>
+            </div>
+            <span id="statMaxStreak" class="text-[10px] text-slate-500 font-mono">Máx: 0</span>
+          </div>
+
+          <!-- Precision -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2 flex items-center justify-between">
+            <div>
+              <span class="block text-[11px] text-slate-400">Precisión</span>
+              <span id="statAccuracy" class="text-base sm:text-lg font-extrabold font-mono text-emerald-400">100%</span>
+            </div>
+            <div class="w-2 h-8 rounded-full bg-emerald-500/20 flex items-end overflow-hidden">
+              <div id="statAccuracyBar" class="w-full bg-emerald-400 transition-all" style="height: 100%"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- MIDDLE GRID: Left = Staff & Note Target + Mic Telemetry | Right = Falling Note Cascade & Keyboard -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
+
+      <!-- LEFT COLUMN (4 cols on desktop): Current Target Card, Treble Staff & Live Microphone Telemetry -->
+      <div class="lg:col-span-4 flex flex-col gap-3">
+        
+        <!-- CURRENT TARGET NOTE + PENTAGRAMA EN CLAVE DE SOL -->
+        <div class="glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <span class="text-[10px] font-bold uppercase tracking-wider text-cyan-400 block">Nota Objetivo Actual</span>
+              <h2 id="targetInstruction" class="text-xs text-slate-300">Toca la nota iluminada para avanzar</h2>
+            </div>
+            <span id="songDifficultyBadge" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30">
+              Principiante
+            </span>
+          </div>
+
+          <!-- Dual Note Badge + Treble Staff SVG Side-by-Side -->
+          <div class="grid grid-cols-12 gap-2 items-center my-1">
+            <!-- Dual Name Display (Spanish + American) -->
+            <div id="targetBadgeBox" class="col-span-5 bg-slate-900/95 border-2 border-cyan-500/60 rounded-2xl p-3 text-center shadow-lg shadow-cyan-500/10 transition-all">
+              <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Español / Cifrado</div>
+              <div id="targetNoteEs" class="text-2xl sm:text-3xl font-black text-white tracking-tight mt-0.5">Do4</div>
+              <div id="targetNoteEn" class="text-sm font-mono font-bold text-cyan-400">C4 • 261.6 Hz</div>
+              <div id="targetLyricOrHint" class="mt-1.5 text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 inline-block">
+                Tecla Blanca
+              </div>
+            </div>
+
+            <!-- Interactive Treble Clef Pentagrama (Clave de Sol) -->
+            <div class="col-span-7 bg-slate-900/90 border border-slate-800 rounded-2xl p-2 flex flex-col items-center justify-center relative">
+              <span class="text-[10px] text-slate-400 font-medium self-start pl-1">Pentagrama (Clave de Sol)</span>
+              <svg id="staffSvg" viewBox="0 0 230 115" class="w-full h-24 overflow-visible">
+                <!-- 5 Staff Lines (E4=85, G4=73, B4=61, D5=49, F5=37) -->
+                <line x1="15" y1="37" x2="215" y2="37" stroke="#475569" stroke-width="1.5" />
+                <line x1="15" y1="49" x2="215" y2="49" stroke="#475569" stroke-width="1.5" />
+                <line x1="15" y1="61" x2="215" y2="61" stroke="#475569" stroke-width="1.5" />
+                <line x1="15" y1="73" x2="215" y2="73" stroke="#475569" stroke-width="1.5" />
+                <line x1="15" y1="85" x2="215" y2="85" stroke="#475569" stroke-width="1.5" />
+
+                <!-- Stylized Treble Clef (Clave de Sol) -->
+                <text x="20" y="79" font-size="62" fill="#38bdf8" font-family="serif" style="user-select:none">𝄞</text>
+
+                <!-- Ledger Line C4 (y=97) & A5 (y=25) dynamic -->
+                <line id="ledgerLineC4" x1="112" y1="97" x2="152" y2="97" stroke="#94a3b8" stroke-width="2" opacity="1" />
+                <line id="ledgerLineA5" x1="112" y1="25" x2="152" y2="25" stroke="#94a3b8" stroke-width="2" opacity="0" />
+
+                <!-- Next preview note on staff (ghosted) -->
+                <g id="staffNextNoteGroup" opacity="0.35">
+                  <ellipse id="staffNextHead" cx="182" cy="85" rx="7" ry="5.5" transform="rotate(-18 182 85)" fill="#94a3b8" />
+                </g>
+
+                <!-- Active Target Note on Staff -->
+                <g id="staffNoteGroup">
+                  <!-- Accidental (#) if sharp -->
+                  <text id="staffSharpSymbol" x="104" y="102" font-size="20" font-weight="bold" fill="#38bdf8" opacity="0">♯</text>
+                  <!-- Note Stem -->
+                  <line id="staffNoteStem" x1="139" y1="97" x2="139" y2="62" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" />
+                  <!-- Note Head -->
+                  <ellipse id="staffNoteHead" cx="131" cy="97" rx="8.5" ry="6.5" transform="rotate(-18 131 97)" fill="#38bdf8" />
+                </g>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Next Notes Queue Pills -->
+          <div class="mt-2 pt-2 border-t border-slate-800/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 shrink-0">Siguientes:</span>
+            <div id="upcomingNotesQueue" class="flex items-center gap-1.5">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- LIVE MICROPHONE PITCH DETECTION TELEMETRY PANEL -->
+        <div class="glass-panel rounded-2xl p-3.5 flex-1 flex flex-col justify-between border border-slate-800">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div id="telemetryStatusIcon" class="w-2.5 h-2.5 rounded-full bg-slate-500"></div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-200">Telemetría del Micrófono (Pitch Detection)</h3>
+            </div>
+            <span id="micStateBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+              Inactivo
+            </span>
+          </div>
+
+          <!-- Detected Note & Frequency Live Readout -->
+          <div class="grid grid-cols-2 gap-2 my-2.5">
+            <div class="bg-slate-900/95 border border-slate-800 rounded-xl p-2.5 text-center">
+              <span class="text-[10px] text-slate-400 uppercase block">Nota Detectada</span>
+              <div id="micDetectedNote" class="text-xl sm:text-2xl font-extrabold font-mono text-slate-400 mt-0.5">--</div>
+              <span id="micCentsDiff" class="text-[10px] font-mono text-slate-500">Esperando señal...</span>
+            </div>
+
+            <div class="bg-slate-900/95 border border-slate-800 rounded-xl p-2.5 text-center flex flex-col justify-between">
+              <span class="text-[10px] text-slate-400 uppercase block">Frecuencia Fundamental</span>
+              <div id="micDetectedHz" class="text-xl sm:text-2xl font-extrabold font-mono text-cyan-400 mt-0.5">0.0 <span class="text-xs font-normal text-slate-400">Hz</span></div>
+              <!-- Validation Hold Progress Bar -->
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1" title="Estabilidad de validación de nota">
+                <div id="micMatchHoldBar" class="h-full bg-emerald-400 transition-all duration-75" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Signal Volume Meter & Waveform Visualizer -->
+          <div class="space-y-2">
+            <div>
+              <div class="flex justify-between text-[11px] mb-1">
+                <span class="text-slate-400">Nivel de Señal vs. Umbral</span>
+                <span id="micVolumeDb" class="font-mono text-slate-300">0%</span>
+              </div>
+              <div class="relative w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                <!-- Threshold Marker Line -->
+                <div id="thresholdMarkerLine" class="absolute top-0 bottom-0 w-0.5 bg-amber-400 z-10" style="left: 15%"></div>
+                <!-- Live RMS Bar -->
+                <div id="micVolumeBar" class="h-full bg-gradient-to-r from-cyan-500 via-emerald-400 to-amber-400 transition-all duration-75" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Sensitivity (Noise Threshold) Slider & Octave Match Option -->
+            <div class="pt-1 flex flex-col gap-2">
+              <div class="flex items-center justify-between gap-2">
+                <label for="sensitivitySlider" class="text-[11px] text-slate-300 font-medium whitespace-nowrap">
+                  Umbral de Ruido: <span id="sensitivityValueLabel" class="font-mono text-amber-400">15%</span>
+                </label>
+                <input id="sensitivitySlider" type="range" min="2" max="60" value="15" oninput="updateSensitivity(this.value)" class="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+              </div>
+
+              <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80 text-[11px]">
+                <label class="flex items-center gap-1.5 cursor-pointer text-slate-300">
+                  <input type="checkbox" id="octaveFlexibleToggle" checked class="rounded accent-cyan-400" />
+                  <span>Permitir octava equivalente (recomendado en móvil)</span>
+                </label>
+                <button onclick="simulateMicNoteHit()" class="text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 underline shrink-0" title="Simular detección de frecuencia de la nota actual">
+                  Probar Pitch
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- RIGHT COLUMN (8 cols on desktop): Visual Waterfall Highway + 2-Octave Interactive Piano (C4 - B5) -->
+      <div class="lg:col-span-8 flex flex-col justify-between glass-panel rounded-2xl p-2 sm:p-3.5 shadow-2xl relative overflow-hidden">
+        
+        <!-- Top Overlay Bar inside Visualizer -->
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2 px-1">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+            <span class="text-xs font-bold text-slate-200">Cascada Visual "Sigue las Notas" (C4 – B5)</span>
+            <span id="feedbackBanner" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition-all">
+              ¡Toca la tecla iluminada!
+            </span>
+          </div>
+
+          <div class="flex items-center gap-3 text-xs">
+            <!-- Speed Selector for Demo/Cascade -->
+            <div class="flex items-center gap-1">
+              <span class="text-slate-400 text-[11px]">Velocidad:</span>
+              <select id="speedSelect" onchange="changeSpeed(this.value)" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-0.5 text-xs text-slate-200">
+                <option value="0.6">0.6x Lento</option>
+                <option value="0.85">0.85x Suave</option>
+                <option value="1" selected>1.0x Normal</option>
+                <option value="1.3">1.3x Rápido</option>
+              </select>
+            </div>
+
+            <!-- Toggle Dual Labels on Keys -->
+            <label class="flex items-center gap-1 cursor-pointer text-[11px] text-slate-300">
+              <input type="checkbox" id="toggleKeyLabels" checked onchange="renderKeyboardLabels()" class="rounded accent-cyan-400" />
+              <span>Nombres en teclas</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- FALLING NOTES WATERFALL CANVAS (Aligned 1:1 with the 14 white keys below) -->
+        <div class="relative w-full h-44 sm:h-56 bg-slate-950/90 rounded-t-xl border border-b-0 border-slate-800 overflow-hidden">
+          <canvas id="waterfallCanvas" class="w-full h-full block"></canvas>
+
+          <!-- Floating Big Note Prompt inside Waterfall -->
+          <div class="absolute top-2.5 right-3 pointer-events-none flex items-center gap-2 bg-slate-900/85 border border-slate-700/80 px-3 py-1.5 rounded-xl backdrop-blur-md">
+            <span class="text-[10px] uppercase tracking-wider text-slate-400">Objetivo:</span>
+            <span id="floatingTargetNote" class="text-sm font-extrabold font-mono text-cyan-300">Do4 (C4)</span>
+          </div>
+        </div>
+
+        <!-- 2-OCTAVE INTERACTIVE PIANO KEYBOARD (C4 to B5) -->
+        <div id="pianoKeyboard" class="piano-container">
+          <!-- White keys row & Black keys overlay populated by JS -->
+        </div>
+
+        <!-- Bottom Hint Footer -->
+        <div class="mt-2 flex flex-wrap items-center justify-between text-[11px] text-slate-400 px-1 gap-1">
+          <span>💡 Puedes tocar en tu <b>piano real</b> (activando el micrófono), pulsar las <b>teclas en pantalla</b> o usar el <b>teclado de tu PC</b> (A-L / Q-P).</span>
+          <span id="audioEngineStatus" class="font-mono text-emerald-400">Sintetizador ADSR Listo</span>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+  <!-- MODAL 1: ONLINE SONG CATALOG (TheSession.org API) & MIDI IMPORTER -->
+  <div id="catalogModal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3">
+    <div class="glass-panel w-full max-w-2xl rounded-2xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+        <div>
+          <h3 class="text-base sm:text-lg font-bold text-white">Catálogo Online, Importador MIDI y Buscador API</h3>
+          <p class="text-xs text-slate-400">Carga archivos .MID de internet o busca melodías en tiempo real en TheSession.org</p>
+        </div>
+        <button onclick="closeModal('catalogModal')" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">✕</button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-5">
+        <!-- Section A: Upload MIDI File -->
+        <div class="bg-slate-900/90 border border-indigo-500/30 rounded-xl p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 class="text-sm font-bold text-indigo-300 flex items-center gap-1.5">
+                <span>🎹 1. Importar Archivo Estándar .MID / .MIDI</span>
+              </h4>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Descarga cualquier canción MIDI de sitios como <i>BitMidi</i>, <i>MuseScore</i> o <i>FreeMidi</i>. PianoSense extrae la melodía principal y la adapta automáticamente a las 2 octavas (C4–B5).
+              </p>
+            </div>
+            <label class="cursor-pointer px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg transition shrink-0">
+              Seleccionar Archivo .MIDI
+              <input type="file" accept=".mid,.midi" class="hidden" onchange="handleMidiUpload(event)" />
+            </label>
+          </div>
+          <div id="midiUploadFeedback" class="mt-2 text-xs text-emerald-400 hidden"></div>
+        </div>
+
+        <!-- Section B: Live API Search (TheSession.org Public JSON API) -->
+        <div class="bg-slate-900/90 border border-cyan-500/30 rounded-xl p-4 space-y-3">
+          <div>
+            <h4 class="text-sm font-bold text-cyan-300">🌐 2. Buscador de Melodías en la Nube (API TheSession.org)</h4>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Conecta en directo con la base de datos pública de partituras ABC y las convierte automáticamente al entrenador visual.
+            </p>
+          </div>
+
+          <div class="flex gap-2">
+            <input id="apiSearchInput" type="text" placeholder="Ej: Butterfly, Grace, Waltz, Polka, Morning..." value="Butterfly"
+              onkeydown="if(event.key==='Enter') searchOnlineTunes()"
+              class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-400" />
+            <button onclick="searchOnlineTunes()" id="btnApiSearch" class="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs sm:text-sm transition">
+              Buscar Online
+            </button>
+          </div>
+
+          <!-- Quick Cloud Presets -->
+          <div class="flex flex-wrap gap-1.5 items-center text-[11px]">
+            <span class="text-slate-400">Búsquedas rápidas:</span>
+            <button onclick="quickSearchTune('Amazing Grace')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">Amazing Grace</button>
+            <button onclick="quickSearchTune('Greensleeves')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">Greensleeves</button>
+            <button onclick="quickSearchTune('Scarborough')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">Scarborough</button>
+            <button onclick="quickSearchTune('Waltz')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300">Waltz</button>
+          </div>
+
+          <!-- Search Results List -->
+          <div id="apiSearchResults" class="space-y-2 max-h-52 overflow-y-auto pr-1">
+            <div class="text-xs text-slate-500 italic py-2">Pulsa "Buscar Online" para consultar el catálogo en tiempo real...</div>
+          </div>
+        </div>
+
+        <!-- Section C: Custom Note Sequence Creator -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 space-y-2">
+          <h4 class="text-sm font-bold text-slate-200">✍️ 3. Pegar Notas Rápidas (Cifrado o Español)</h4>
+          <p class="text-xs text-slate-400">Escribe notas separadas por espacio (ej: <code class="text-cyan-300">C4 D4 E4 F4 G4 A4 B4 C5</code> o <code class="text-cyan-300">Do4 Re4 Mi4 Sol4</code>):</p>
+          <div class="flex gap-2">
+            <input id="customNotesInput" type="text" value="C4 E4 G4 C5 B4 G4 E4 C4" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-cyan-200" />
+            <button onclick="loadCustomNoteString()" class="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition shrink-0">
+              Cargar Notas
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: GITHUB TO ANDROID APK GUIDE & PLATFORMS INFO -->
+  <div id="apkModal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3">
+    <div class="glass-panel w-full max-w-2xl rounded-2xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+        <div>
+          <h3 class="text-base sm:text-lg font-bold text-white">Cómo Compilar esta App como APK en GitHub + Plataformas</h3>
+          <p class="text-xs text-slate-400">Flujo automatizado con Capacitor y GitHub Actions sin instalar Android Studio</p>
+        </div>
+        <button onclick="closeModal('apkModal')" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">✕</button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+          <h4 class="font-bold text-cyan-400 mb-1">1. ¿A qué plataformas de canciones puedes conectarla?</h4>
+          <ul class="list-disc list-inside space-y-1 text-xs text-slate-300">
+            <li><b>Archivos .MID / .MIDI (Integrado):</b> Es el estándar universal. Cualquier canción descargada de <i>MuseScore, BitMidi, FreeMidi o GitHub</i> se puede cargar con el botón <b>.MIDI</b>.</li>
+            <li><b>TheSession.org API (Integrado):</b> Base de datos JSON abierta y sin clave API con más de 40.000 melodías en notación ABC que esta app convierte al instante.</li>
+            <li><b>Repositorio JSON propio en GitHub:</b> Puedes alojar una carpeta <code class="text-cyan-300">/songs/*.mid</code> en tu propio repositorio y listarlas automáticamente.</li>
+          </ul>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          <h4 class="font-bold text-emerald-400">2. Permiso de Micrófono en Android (`AndroidManifest.xml`)</h4>
+          <p class="text-xs text-slate-400">Para que la detección de frecuencia funcione en el APK instalado en tu móvil, añade este permiso en <code class="text-emerald-300">android/app/src/main/AndroidManifest.xml</code>:</p>
+          <pre class="bg-slate-950 p-2.5 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto">&lt;uses-permission android:name="android.permission.RECORD_AUDIO" /&gt;
+&lt;uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /&gt;</pre>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-purple-400">3. GitHub Action (`.github/workflows/build-apk.yml`)</h4>
+            <button onclick="copyGithubWorkflow()" id="btnCopyWorkflow" class="px-2.5 py-1 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-semibold">
+              Copiar YAML
+            </button>
+          </div>
+          <pre id="workflowYamlCode" class="bg-slate-950 p-2.5 rounded-lg text-[11px] font-mono text-slate-300 overflow-x-auto">name: Generar APK Android
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: 'temurin', java-version: '17' }
+      - name: Empaquetar Web en Android con Capacitor
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap init PianoSense com.pianosense.app --web-dir .
+          npx cap add android
+          npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - name: Subir APK listo para instalar
+        uses: actions/upload-artifact@v4
+        with:
+          name: PianoSense-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: SONG COMPLETED CELEBRATION -->
+  <div id="victoryModal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-panel max-w-md w-full rounded-2xl border border-emerald-500/40 p-6 text-center shadow-2xl space-y-4">
+      <div class="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-3xl">
+        🏆
+      </div>
+      <div>
+        <h3 class="text-xl font-extrabold text-white">¡Canción Completada!</h3>
+        <p id="victorySongTitle" class="text-xs text-cyan-400 font-semibold mt-0.5"></p>
+      </div>
+      <div class="grid grid-cols-2 gap-3 bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+        <div>
+          <span class="text-[11px] text-slate-400 block">Precisión Final</span>
+          <span id="victoryAccuracy" class="text-xl font-black font-mono text-emerald-400">100%</span>
+        </div>
+        <div>
+          <span class="text-[11px] text-slate-400 block">Mejor Racha</span>
+          <span id="victoryStreak" class="text-xl font-black font-mono text-amber-400">15 🔥</span>
+        </div>
+      </div>
+      <div class="flex gap-2 justify-center pt-1">
+        <button onclick="closeModal('victoryModal'); restartSong();" class="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs sm:text-sm transition">
+          Repetir Canción
+        </button>
+        <button onclick="closeModal('victoryModal'); nextSongInCatalog();" class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs sm:text-sm border border-slate-700 transition">
+          Siguiente Canción ⏭
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- APPLICATION JAVASCRIPT -->
+  <script>
+    /********************************************************************
+     * 1. DEFINICIÓN DE LAS 2 OCTAVAS (C4 a B5) Y PROPIEDADES MUSICALES
+     ********************************************************************/
+    const NOTES_DATA = [
+      // Octava 4
+      { id: 'C4',  es: 'Do4',  freq: 261.63, isBlack: false, whiteIndex: 0,  staffY: 97, ledgerC4: true,  ledgerA5: false, pcKey: 'A' },
+      { id: 'C#4', es: 'Do#4', freq: 277.18, isBlack: true,  whiteIndex: 0,  staffY: 97, ledgerC4: true,  ledgerA5: false, pcKey: 'W' },
+      { id: 'D4',  es: 'Re4',  freq: 293.66, isBlack: false, whiteIndex: 1,  staffY: 91, ledgerC4: false, ledgerA5: false, pcKey: 'S' },
+      { id: 'D#4', es: 'Re#4', freq: 311.13, isBlack: true,  whiteIndex: 1,  staffY: 91, ledgerC4: false, ledgerA5: false, pcKey: 'E' },
+      { id: 'E4',  es: 'Mi4',  freq: 329.63, isBlack: false, whiteIndex: 2,  staffY: 85, ledgerC4: false, ledgerA5: false, pcKey: 'D' },
+      { id: 'F4',  es: 'Fa4',  freq: 349.23, isBlack: false, whiteIndex: 3,  staffY: 79, ledgerC4: false, ledgerA5: false, pcKey: 'F' },
+      { id: 'F#4', es: 'Fa#4', freq: 369.99, isBlack: true,  whiteIndex: 3,  staffY: 79, ledgerC4: false, ledgerA5: false, pcKey: 'T' },
+      { id: 'G4',  es: 'Sol4', freq: 392.00, isBlack: false, whiteIndex: 4,  staffY: 73, ledgerC4: false, ledgerA5: false, pcKey: 'G' },
+      { id: 'G#4', es: 'Sol#4',freq: 415.30, isBlack: true,  whiteIndex: 4,  staffY: 73, ledgerC4: false, ledgerA5: false, pcKey: 'Y' },
+      { id: 'A4',  es: 'La4',  freq: 440.00, isBlack: false, whiteIndex: 5,  staffY: 67, ledgerC4: false, ledgerA5: false, pcKey: 'H' },
+      { id: 'A#4', es: 'La#4', freq: 466.16, isBlack: true,  whiteIndex: 5,  staffY: 67, ledgerC4: false, ledgerA5: false, pcKey: 'U' },
+      { id: 'B4',  es: 'Si4',  freq: 493.88, isBlack: false, whiteIndex: 6,  staffY: 61, ledgerC4: false, ledgerA5: false, pcKey: 'J' },
+      // Octava 5
+      { id: 'C5',  es: 'Do5',  freq: 523.25, isBlack: false, whiteIndex: 7,  staffY: 55, ledgerC4: false, ledgerA5: false, pcKey: 'K' },
+      { id: 'C#5', es: 'Do#5', freq: 554.37, isBlack: true,  whiteIndex: 7,  staffY: 55, ledgerC4: false, ledgerA5: false, pcKey: 'O' },
+      { id: 'D5',  es: 'Re5',  freq: 587.33, isBlack: false, whiteIndex: 8,  staffY: 49, ledgerC4: false, ledgerA5: false, pcKey: 'L' },
+      { id: 'D#5', es: 'Re#5', freq: 622.25, isBlack: true,  whiteIndex: 8,  staffY: 49, ledgerC4: false, ledgerA5: false, pcKey: 'P' },
+      { id: 'E5',  es: 'Mi5',  freq: 659.25, isBlack: false, whiteIndex: 9,  staffY: 43, ledgerC4: false, ledgerA5: false, pcKey: 'Ñ' },
+      { id: 'F5',  es: 'Fa5',  freq: 698.46, isBlack: false, whiteIndex: 10, staffY: 37, ledgerC4: false, ledgerA5: false, pcKey: 'Z' },
+      { id: 'F#5', es: 'Fa#5', freq: 739.99, isBlack: true,  whiteIndex: 10, staffY: 37, ledgerC4: false, ledgerA5: false, pcKey: 'X' },
+      { id: 'G5',  es: 'Sol5', freq: 783.99, isBlack: false, whiteIndex: 11, staffY: 31, ledgerC4: false, ledgerA5: false, pcKey: 'C' },
+      { id: 'G#5', es: 'Sol#5',freq: 830.61, isBlack: true,  whiteIndex: 11, staffY: 31, ledgerC4: false, ledgerA5: false, pcKey: 'V' },
+      { id: 'A5',  es: 'La5',  freq: 880.00, isBlack: false, whiteIndex: 12, staffY: 25, ledgerC4: false, ledgerA5: true,  pcKey: 'B' },
+      { id: 'A#5', es: 'La#5', freq: 932.33, isBlack: true,  whiteIndex: 12, staffY: 25, ledgerC4: false, ledgerA5: true,  pcKey: 'N' },
+      { id: 'B5',  es: 'Si5',  freq: 987.77, isBlack: false, whiteIndex: 13, staffY: 19, ledgerC4: false, ledgerA5: true,  pcKey: 'M' }
+    ];
+
+    const NOTE_MAP = {};
+    NOTES_DATA.forEach(n => { NOTE_MAP[n.id] = n; });
+
+    /********************************************************************
+     * 2. CATÁLOGO PREINSTALADO DE 5 CANCIONES CLÁSICAS PARA PRINCIPIANTES
+     ********************************************************************/
+    const SONGS_CATALOG = [
+      {
+        id: 'ode_to_joy',
+        title: '1. Himno a la Alegría (Beethoven)',
+        difficulty: 'Principiante',
+        bpm: 108,
+        notes: [
+          { note: 'E4', dur: 1 }, { note: 'E4', dur: 1 }, { note: 'F4', dur: 1 }, { note: 'G4', dur: 1 },
+          { note: 'G4', dur: 1 }, { note: 'F4', dur: 1 }, { note: 'E4', dur: 1 }, { note: 'D4', dur: 1 },
+          { note: 'C4', dur: 1 }, { note: 'C4', dur: 1 }, { note: 'D4', dur: 1 }, { note: 'E4', dur: 1 },
+          { note: 'E4', dur: 1.5 }, { note: 'D4', dur: 0.5 }, { note: 'D4', dur: 2 },
+          { note: 'E4', dur: 1 }, { note: 'E4', dur: 1 }, { note: 'F4', dur: 1 }, { note: 'G4', dur: 1 },
+          { note: 'G4', dur: 1 }, { note: 'F4', dur: 1 }, { note: 'E4', dur: 1 }, { note: 'D4', dur: 1 },
+          { note: 'C4', dur: 1 }, { note: 'C4', dur: 1 }, { note: 'D4', dur: 1 }, { note: 'E4', dur: 1 },
+          { note: 'D4', dur: 1.5 }, { note: 'C4', dur: 0.5 }, { note: 'C4', dur: 2 }
+        ]
+      },
+      {
+        id: 'twinkle',
+        title: '2. Estrellita Dónde Estás (Mozart / Trad.)',
+        difficulty: 'Principiante',
+        bpm: 100,
+        notes: [
+          { note: 'C4', dur: 1 }, { note: 'C4', dur: 1 }, { note: 'G4', dur: 1 }, { note: 'G4', dur: 1 },
+          { note: 'A4', dur: 1 }, { note: 'A4', dur: 1 }, { note: 'G4', dur: 2 },
+          { note: 'F4', dur: 1 }, { note: 'F4', dur: 1 }, { note: 'E4', dur: 1 }, { note: 'E4', dur: 1 },
+          { note: 'D4', dur: 1 }, { note: 'D4', dur: 1 }, { note: 'C4', dur: 2 },
+          { note: 'G4', dur: 1 }, { note: 'G4', dur: 1 }, { note: 'F4', dur: 1 }, { note: 'F4', dur: 1 },
+          { note: 'E4', dur: 1 }, { note: 'E4', dur: 1 }, { note: 'D4', dur: 2 },
+          { note: 'C4', dur: 1 }, { note: 'C4', dur: 1 }, { note: 'G4', dur: 1 }, { note: 'G4', dur: 1 },
+          { note: 'A4', dur: 1 }, { note: 'A4', dur: 1 }, { note: 'G4', dur: 2 },
+          { note: 'F4', dur: 1 }, { note: 'F4', dur: 1 }, { note: 'E4', dur: 1 }, { note: 'E4', dur: 1 },
+          { note: 'D4', dur: 1 }, { note: 'D4', dur: 1 }, { note: 'C4', dur: 2 }
+        ]
+      },
+      {
+        id: 'fur_elise',
+        title: '3. Para Elisa - Intro (Beethoven)',
+        difficulty: 'Intermedio',
+        bpm: 112,
+        notes: [
+          { note: 'E5', dur: 0.75 }, { note: 'D#5', dur: 0.75 }, { note: 'E5', dur: 0.75 }, { note: 'D#5', dur: 0.75 },
+          { note: 'E5', dur: 0.75 }, { note: 'B4', dur: 0.75 }, { note: 'D5', dur: 0.75 }, { note: 'C5', dur: 0.75 },
+          { note: 'A4', dur: 1.5 }, { note: 'C4', dur: 0.75 }, { note: 'E4', dur: 0.75 }, { note: 'A4', dur: 0.75 },
+          { note: 'B4', dur: 1.5 }, { note: 'E4', dur: 0.75 }, { note: 'G#4', dur: 0.75 }, { note: 'B4', dur: 0.75 },
+          { note: 'C5', dur: 1.5 }, { note: 'E4', dur: 0.75 }, { note: 'E5', dur: 0.75 }, { note: 'D#5', dur: 0.75 },
+          { note: 'E5', dur: 0.75 }, { note: 'D#5', dur: 0.75 }, { note: 'E5', dur: 0.75 }, { note: 'B4', dur: 0.75 },
+          { note: 'D5', dur: 0.75 }, { note: 'C5', dur: 0.75 }, { note: 'A4', dur: 2 }
+        ]
+      },
+      {
+        id: 'happy_birthday',
+        title: '4. Cumpleaños Feliz (Tradicional)',
+        difficulty: 'Principiante',
+        bpm: 100,
+        notes: [
+          { note: 'C4', dur: 0.75 }, { note: 'C4', dur: 0.5 }, { note: 'D4', dur: 1 }, { note: 'C4', dur: 1 },
+          { note: 'F4', dur: 1 }, { note: 'E4', dur: 2 },
+          { note: 'C4', dur: 0.75 }, { note: 'C4', dur: 0.5 }, { note: 'D4', dur: 1 }, { note: 'C4', dur: 1 },
+          { note: 'G4', dur: 1 }, { note: 'F4', dur: 2 },
+          { note: 'C4', dur: 0.75 }, { note: 'C4', dur: 0.5 }, { note: 'C5', dur: 1 }, { note: 'A4', dur: 1 },
+          { note: 'F4', dur: 1 }, { note: 'E4', dur: 1 }, { note: 'D4', dur: 2 },
+          { note: 'A#4', dur: 0.75 }, { note: 'A#4', dur: 0.5 }, { note: 'A4', dur: 1 }, { note: 'F4', dur: 1 },
+          { note: 'G4', dur: 1 }, { note: 'F4', dur: 2 }
+        ]
+      },
+      {
+        id: 'minuet_in_g',
+        title: '5. Minueto en Sol Mayor (J.S. Bach)',
+        difficulty: 'Intermedio',
+        bpm: 110,
+        notes: [
+          { note: 'D5', dur: 1 }, { note: 'G4', dur: 0.5 }, { note: 'A4', dur: 0.5 }, { note: 'B4', dur: 0.5 }, { note: 'C5', dur: 0.5 },
+          { note: 'D5', dur: 1 }, { note: 'G4', dur: 1 }, { note: 'G4', dur: 1 },
+          { note: 'E5', dur: 1 }, { note: 'C5', dur: 0.5 }, { note: 'D5', dur: 0.5 }, { note: 'E5', dur: 0.5 }, { note: 'F#5', dur: 0.5 },
+          { note: 'G5', dur: 1 }, { note: 'G4', dur: 1 }, { note: 'G4', dur: 1 },
+          { note: 'C5', dur: 1 }, { note: 'D5', dur: 0.5 }, { note: 'C5', dur: 0.5 }, { note: 'B4', dur: 0.5 }, { note: 'A4', dur: 0.5 },
+          { note: 'B4', dur: 1 }, { note: 'C5', dur: 0.5 }, { note: 'B4', dur: 0.5 }, { note: 'A4', dur: 0.5 }, { note: 'G4', dur: 0.5 },
+          { note: 'F#4', dur: 1 }, { note: 'G4', dur: 0.5 }, { note: 'A4', dur: 0.5 }, { note: 'B4', dur: 0.5 }, { note: 'G4', dur: 0.5 },
+          { note: 'A4', dur: 2 }
+        ]
+      }
+    ];
+
+    /********************************************************************
+     * 3. ESTADO GLOBAL DE LA APLICACIÓN
+     ********************************************************************/
+    let currentSongIndex = 0;
+    let currentNoteIndex = 0;
+    let playMode = 'wait'; // 'wait' o 'demo'
+    let playbackSpeed = 1.0;
+    let demoTimer = null;
+
+    // Estadísticas de entrenamiento
+    let streak = 0;
+    let maxStreak = 0;
+    let totalAttempts = 0;
+    let correctAttempts = 0;
+
+    // Web Audio API Synthesizer & Microphone Pitch Detector
+    let audioCtx = null;
+    let micStream = null;
+    let analyserNode = null;
+    let isMicActive = false;
+    let micSensitivity = 0.018; // RMS threshold (ajustable con el slider)
+    let pitchHoldCounter = 0;   // Cuántos frames seguidos coincide la nota por micrófono
+    let lastValidatedTime = 0;
+
+    // Cascada visual (Canvas)
+    let waterfallCanvas, waterfallCtx;
+    let keyPositions = {}; // Coordenadas X y ancho de cada tecla en el DOM para alinear la cascada
+    let hitParticles = []; // Efecto de partículas al acertar una nota
+
+    /********************************************************************
+     * 4. SINTETIZADOR DE PIANO (WEB AUDIO API CON ARMÓNICOS + ADSR)
+     ********************************************************************/
+    function ensureAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playPianoSound(freq, durationSec = 0.65) {
+      try {
+        ensureAudioContext();
+        const now = audioCtx.currentTime;
+
+        // Filtro paso bajo cálido para emular tabla armónica de piano acústico
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(freq * 4.5, now);
+        filter.frequency.exponentialRampToValueAtTime(freq * 1.4, now + durationSec);
+
+        // Envolvente principal ADSR
+        const masterGain = audioCtx.createGain();
+        masterGain.gain.setValueAtTime(0.001, now);
+        masterGain.gain.linearRampToValueAtTime(0.36, now + 0.012); // Ataque rápido de macillo
+        masterGain.gain.exponentialRampToValueAtTime(0.14, now + 0.18); // Decay
+        masterGain.gain.exponentialRampToValueAtTime(0.0008, now + durationSec + 0.25); // Release
+
+        // Oscilador 1: Fundamental (Triangle)
+        const osc1 = audioCtx.createOscillator();
+        osc1.type = 'triangle';
+        osc1.frequency.setValueAtTime(freq, now);
+
+        // Oscilador 2: Armónico rico ligeramente desafinado (Sine / Sawtooth suave)
+        const osc2 = audioCtx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(freq * 2, now);
+        const gain2 = audioCtx.createGain();
+        gain2.gain.setValueAtTime(0.12, now);
+
+        // Oscilador 3: Brillo de ataque (3er armónico breve)
+        const osc3 = audioCtx.createOscillator();
+        osc3.type = 'sine';
+        osc3.frequency.setValueAtTime(freq * 3, now);
+        const gain3 = audioCtx.createGain();
+        gain3.gain.setValueAtTime(0.04, now);
+        gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+        osc1.connect(filter);
+        osc2.connect(gain2);
+        gain2.connect(filter);
+        osc3.connect(gain3);
+        gain3.connect(filter);
+
+        filter.connect(masterGain);
+        masterGain.connect(audioCtx.destination);
+
+        osc1.start(now);
+        osc2.start(now);
+        osc3.start(now);
+
+        const stopTime = now + durationSec + 0.28;
+        osc1.stop(stopTime);
+        osc2.stop(stopTime);
+        osc3.stop(stopTime);
+      } catch (e) {
+        console.warn('Error reproduciendo nota sintetizada:', e);
+      }
+    }
+
+    /********************************************************************
+     * 5. CONSTRUCCIÓN DEL TECLADO INTERACTIVO DE 2 OCTAVAS (C4 a B5)
+     ********************************************************************/
+    function buildPianoKeyboard() {
+      const container = document.getElementById('pianoKeyboard');
+      container.innerHTML = '';
+
+      const whiteRow = document.createElement('div');
+      whiteRow.className = 'white-keys-row';
+
+      // 1. Crear las 14 teclas blancas
+      const whiteNotes = NOTES_DATA.filter(n => !n.isBlack);
+      whiteNotes.forEach(noteObj => {
+        const keyEl = document.createElement('div');
+        keyEl.className = 'white-key';
+        keyEl.id = `key-${noteObj.id}`;
+        keyEl.dataset.note = noteObj.id;
+
+        keyEl.innerHTML = `
+          <div class="key-label flex flex-col items-center pointer-events-none leading-tight">
+            <span class="text-[11px] sm:text-xs font-extrabold text-slate-800">${noteObj.es}</span>
+            <span class="text-[9px] sm:text-[10px] font-mono font-semibold text-slate-500">${noteObj.id}</span>
+          </div>
+        `;
+
+        // Eventos táctiles y de ratón sin latencia
+        keyEl.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          handleUserNoteInput(noteObj.id, 'keyboard');
+        });
+
+        whiteRow.appendChild(keyEl);
+      });
+
+      container.appendChild(whiteRow);
+
+      // 2. Crear las 10 teclas negras posicionadas exactamente entre las blancas correspondientes
+      const blackNotes = NOTES_DATA.filter(n => n.isBlack);
+      const totalWhite = 14;
+      const blackWidthPct = (100 / totalWhite) * 0.64;
+
+      blackNotes.forEach(noteObj => {
+        const keyEl = document.createElement('div');
+        keyEl.className = 'black-key';
+        keyEl.id = `key-${noteObj.id}`;
+        keyEl.dataset.note = noteObj.id;
+
+        // Posición centrada en la unión entre whiteIndex y whiteIndex + 1
+        const leftPct = ((noteObj.whiteIndex + 1) * (100 / totalWhite)) - (blackWidthPct / 2);
+        keyEl.style.width = `${blackWidthPct}%`;
+        keyEl.style.left = `${leftPct}%`;
+
+        keyEl.innerHTML = `
+          <div class="key-label flex flex-col items-center pointer-events-none leading-none">
+            <span class="text-[9px] font-bold text-slate-200">${noteObj.es.replace('4','').replace('5','')}</span>
+            <span class="text-[8px] font-mono text-cyan-300/90">${noteObj.id}</span>
+          </div>
+        `;
+
+        keyEl.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleUserNoteInput(noteObj.id, 'keyboard');
+        });
+
+        container.appendChild(keyEl);
+      });
+
+      setTimeout(measureKeyPositions, 60);
+    }
+
+    function renderKeyboardLabels() {
+      const show = document.getElementById('toggleKeyLabels').checked;
+      document.querySelectorAll('.key-label').forEach(el => {
+        el.style.opacity = show ? '1' : '0';
+      });
+    }
+
+    function measureKeyPositions() {
+      if (!waterfallCanvas) return;
+      const canvasRect = waterfallCanvas.getBoundingClientRect();
+      NOTES_DATA.forEach(noteObj => {
+        const el = document.getElementById(`key-${noteObj.id}`);
+        if (el) {
+          const r = el.getBoundingClientRect();
+          keyPositions[noteObj.id] = {
+            x: r.left - canvasRect.left,
+            width: r.width,
+            isBlack: noteObj.isBlack
+          };
+        }
+      });
+    }
+
+    /********************************************************************
+     * 6. LÓGICA DEL ENTRENADOR VISUAL ("SIGUE LAS NOTAS" & DEMO)
+     ********************************************************************/
+    function populateSongSelector() {
+      const sel = document.getElementById('songSelect');
+      sel.innerHTML = '';
+      SONGS_CATALOG.forEach((song, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `${song.title} (${song.notes.length} notas)`;
+        if (idx === currentSongIndex) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    function selectSong(index) {
+      currentSongIndex = parseInt(index, 10) || 0;
+      restartSong();
+    }
+
+    function nextSongInCatalog() {
+      currentSongIndex = (currentSongIndex + 1) % SONGS_CATALOG.length;
+      document.getElementById('songSelect').value = currentSongIndex;
+      restartSong();
+    }
+
+    function restartSong() {
+      stopDemoPlayback();
+      currentNoteIndex = 0;
+      streak = 0;
+      totalAttempts = 0;
+      correctAttempts = 0;
+      updateTargetUI();
+      updateStatsUI();
+
+      if (playMode === 'demo') {
+        startDemoPlayback();
+      }
+    }
+
+    function setPlayMode(mode) {
+      playMode = mode;
+      const btnWait = document.getElementById('btnWaitMode');
+      const btnDemo = document.getElementById('btnDemoMode');
+
+      if (mode === 'wait') {
+        stopDemoPlayback();
+        btnWait.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-cyan-500 text-slate-950 shadow';
+        btnDemo.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-400 hover:text-white';
+        setFeedbackBanner('Modo Espera: Toca la nota iluminada', 'cyan');
+      } else {
+        btnDemo.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-amber-400 text-slate-950 shadow';
+        btnWait.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-400 hover:text-white';
+        setFeedbackBanner('Reproduciendo Demo Automática...', 'amber');
+        startDemoPlayback();
+      }
+    }
+
+    function changeSpeed(val) {
+      playbackSpeed = parseFloat(val) || 1.0;
+    }
+
+    function startDemoPlayback() {
+      stopDemoPlayback();
+      const song = SONGS_CATALOG[currentSongIndex];
+      if (!song || currentNoteIndex >= song.notes.length) {
+        currentNoteIndex = 0;
+      }
+
+      function stepDemo() {
+        if (playMode !== 'demo') return;
+        const s = SONGS_CATALOG[currentSongIndex];
+        if (currentNoteIndex >= s.notes.length) {
+          currentNoteIndex = 0;
+          updateTargetUI();
+        }
+        const item = s.notes[currentNoteIndex];
+        const noteObj = NOTE_MAP[item.note] || NOTE_MAP['C4'];
+        const beatMs = (60000 / (s.bpm || 100)) / playbackSpeed;
+        const noteDurationMs = Math.max(220, (item.dur || 1) * beatMs);
+
+        playPianoSound(noteObj.freq, (noteDurationMs / 1000) * 0.9);
+        flashKeyFeedback(noteObj.id, 'hit');
+        spawnHitParticles(noteObj.id);
+
+        currentNoteIndex++;
+        updateStatsUI();
+
+        if (currentNoteIndex < s.notes.length) {
+          updateTargetUI();
+          demoTimer = setTimeout(stepDemo, noteDurationMs);
+        } else {
+          setPlayMode('wait');
+          showVictoryModal();
+        }
+      }
+
+      stepDemo();
+    }
+
+    function stopDemoPlayback() {
+      if (demoTimer) {
+        clearTimeout(demoTimer);
+        demoTimer = null;
+      }
+    }
+
+    function skipCurrentNote() {
+      const song = SONGS_CATALOG[currentSongIndex];
+      if (!song) return;
+      if (currentNoteIndex < song.notes.length - 1) {
+        currentNoteIndex++;
+        updateTargetUI();
+        updateStatsUI();
+      } else {
+        showVictoryModal();
+      }
+    }
+
+    // Valida la entrada del usuario (desde pantalla, teclado PC o micrófono en vivo)
+    function handleUserNoteInput(playedNoteId, source = 'keyboard') {
+      const noteObj = NOTE_MAP[playedNoteId];
+      if (!noteObj) return;
+
+      // Si el usuario pulsa la tecla física en pantalla/PC, reproducir el sonido del piano
+      if (source !== 'microphone') {
+        playPianoSound(noteObj.freq, 0.65);
+      }
+
+      const song = SONGS_CATALOG[currentSongIndex];
+      if (!song || currentNoteIndex >= song.notes.length) return;
+
+      const targetNoteId = song.notes[currentNoteIndex].note;
+      const allowOctaveEquivalent = document.getElementById('octaveFlexibleToggle').checked;
+
+      // Comprobar coincidencia exacta o equivalente de octava (ej. C4 vs C5 cuando viene por micrófono)
+      const isExactMatch = (playedNoteId === targetNoteId);
+      const pitchClassPlayed = playedNoteId.replace(/[0-9]/g, '');
+      const pitchClassTarget = targetNoteId.replace(/[0-9]/g, '');
+      const isOctaveMatch = (source === 'microphone' && allowOctaveEquivalent && pitchClassPlayed === pitchClassTarget);
+
+      if (isExactMatch || isOctaveMatch) {
+        // ¡ACIERTO!
+        totalAttempts++;
+        correctAttempts++;
+        streak++;
+        if (streak > maxStreak) maxStreak = streak;
+
+        flashKeyFeedback(targetNoteId, 'hit');
+        spawnHitParticles(targetNoteId);
+
+        const targetBadge = document.getElementById('targetBadgeBox');
+        targetBadge.classList.add('border-emerald-400', 'scale-105');
+        setTimeout(() => targetBadge.classList.remove('border-emerald-400', 'scale-105'), 180);
+
+        setFeedbackBanner(
+          source === 'microphone'
+            ? `¡Correcto por Micrófono! ${NOTE_MAP[targetNoteId].es} (${targetNoteId})`
+            : `¡Muy bien! ${NOTE_MAP[targetNoteId].es} (${targetNoteId})`,
+          'emerald'
+        );
+
+        currentNoteIndex++;
+        updateStatsUI();
+
+        if (currentNoteIndex >= song.notes.length) {
+          showVictoryModal();
+        } else {
+          updateTargetUI();
+        }
+      } else if (source !== 'microphone') {
+        // Fallo al pulsar tecla equivocada en pantalla
+        totalAttempts++;
+        streak = 0;
+        flashKeyFeedback(playedNoteId, 'wrong');
+        setFeedbackBanner(`Pulsaste ${noteObj.es} (${playedNoteId}) — Busca ${NOTE_MAP[targetNoteId].es} (${targetNoteId})`, 'rose');
+        updateStatsUI();
+      }
+    }
+
+    function flashKeyFeedback(noteId, type) {
+      const keyEl = document.getElementById(`key-${noteId}`);
+      if (!keyEl) return;
+      const cls = type === 'hit' ? 'key-hit' : 'key-wrong';
+      keyEl.classList.add(cls);
+      setTimeout(() => keyEl.classList.remove(cls), 240);
+    }
+
+    function updateTargetUI() {
+      const song = SONGS_CATALOG[currentSongIndex];
+      if (!song) return;
+
+      document.getElementById('songDifficultyBadge').textContent = song.difficulty || 'Personalizada';
+
+      // Limpiar iluminación guía previa
+      document.querySelectorAll('.white-key, .black-key').forEach(el => {
+        el.classList.remove('key-target');
+      });
+
+      if (currentNoteIndex >= song.notes.length) return;
+
+      const currentItem = song.notes[currentNoteIndex];
+      const noteObj = NOTE_MAP[currentItem.note] || NOTE_MAP['C4'];
+
+      // Iluminar tecla objetivo en el piano
+      const targetKeyEl = document.getElementById(`key-${noteObj.id}`);
+      if (targetKeyEl) {
+        targetKeyEl.classList.add('key-target');
+      }
+
+      // Actualizar tarjeta de nota en Español y Cifrado Americano
+      document.getElementById('targetNoteEs').textContent = noteObj.es;
+      document.getElementById('targetNoteEn').textContent = `${noteObj.id} • ${noteObj.freq.toFixed(1)} Hz`;
+      document.getElementById('targetLyricOrHint').textContent = noteObj.isBlack
+        ? `Tecla Negra • Atajo PC [${noteObj.pcKey}]`
+        : `Tecla Blanca • Atajo PC [${noteObj.pcKey}]`;
+      document.getElementById('floatingTargetNote').textContent = `${noteObj.es} (${noteObj.id})`;
+
+      // Actualizar Pentagrama en Clave de Sol
+      updateTrebleStaff(noteObj, song.notes[currentNoteIndex + 1]);
+
+      // Actualizar cola de siguientes notas
+      const queueContainer = document.getElementById('upcomingNotesQueue');
+      queueContainer.innerHTML = '';
+      const nextSlice = song.notes.slice(currentNoteIndex + 1, currentNoteIndex + 8);
+      if (nextSlice.length === 0) {
+        queueContainer.innerHTML = '<span class="text-xs text-emerald-400 font-semibold">¡Última nota!</span>';
+      } else {
+        nextSlice.forEach((item, idx) => {
+          const n = NOTE_MAP[item.note] || NOTE_MAP['C4'];
+          const pill = document.createElement('div');
+          pill.className = idx === 0
+            ? 'px-2.5 py-1 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 text-xs font-bold shrink-0'
+            : 'px-2 py-1 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-300 text-[11px] font-medium shrink-0';
+          pill.textContent = `${n.es} (${n.id})`;
+          queueContainer.appendChild(pill);
+        });
+      }
+    }
+
+    function updateTrebleStaff(noteObj, nextItem) {
+      const head = document.getElementById('staffNoteHead');
+      const stem = document.getElementById('staffNoteStem');
+      const sharp = document.getElementById('staffSharpSymbol');
+      const ledgerC4 = document.getElementById('ledgerLineC4');
+      const ledgerA5 = document.getElementById('ledgerLineA5');
+
+      const y = noteObj.staffY;
+      head.setAttribute('cy', y);
+      head.setAttribute('transform', `rotate(-18 131 ${y})`);
+
+      // Dirección de la plica (hacia arriba si es menor que B4, hacia abajo si es B4 o superior)
+      if (y >= 61) {
+        stem.setAttribute('x1', 139);
+        stem.setAttribute('x2', 139);
+        stem.setAttribute('y1', y);
+        stem.setAttribute('y2', y - 34);
+      } else {
+        stem.setAttribute('x1', 123);
+        stem.setAttribute('x2', 123);
+        stem.setAttribute('y1', y);
+        stem.setAttribute('y2', y + 34);
+      }
+
+      // Sostenido (#)
+      if (noteObj.isBlack) {
+        sharp.setAttribute('y', y + 6);
+        sharp.setAttribute('opacity', '1');
+      } else {
+        sharp.setAttribute('opacity', '0');
+      }
+
+      // Líneas adicionales (Do4 inferior o La5/Si5 superior)
+      ledgerC4.setAttribute('opacity', noteObj.ledgerC4 ? '1' : '0');
+      ledgerA5.setAttribute('opacity', noteObj.ledgerA5 ? '1' : '0');
+
+      // Siguiente nota fantasma en el pentagrama
+      const nextGroup = document.getElementById('staffNextNoteGroup');
+      const nextHead = document.getElementById('staffNextHead');
+      if (nextItem && NOTE_MAP[nextItem.note]) {
+        const ny = NOTE_MAP[nextItem.note].staffY;
+        nextHead.setAttribute('cy', ny);
+        nextHead.setAttribute('transform', `rotate(-18 182 ${ny})`);
+        nextGroup.setAttribute('opacity', '0.35');
+      } else {
+        nextGroup.setAttribute('opacity', '0');
+      }
+    }
+
+    function updateStatsUI() {
+      const song = SONGS_CATALOG[currentSongIndex];
+      const total = song ? song.notes.length : 0;
+      const pct = total > 0 ? Math.round((currentNoteIndex / total) * 100) : 0;
+
+      document.getElementById('statProgressText').textContent = `${currentNoteIndex}/${total}`;
+      document.getElementById('statProgressBar').style.width = `${pct}%`;
+
+      document.getElementById('statStreak').textContent = `${streak} 🔥`;
+      document.getElementById('statMaxStreak').textContent = `Máx: ${maxStreak}`;
+
+      const acc = totalAttempts > 0 ? Math.round((correctAttempts / totalAttempts) * 100) : 100;
+      document.getElementById('statAccuracy').textContent = `${acc}%`;
+      document.getElementById('statAccuracyBar').style.height = `${acc}%`;
+    }
+
+    function setFeedbackBanner(text, color = 'cyan') {
+      const el = document.getElementById('feedbackBanner');
+      el.textContent = text;
+      const styles = {
+        cyan: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+        emerald: 'bg-emerald-500/25 text-emerald-300 border-emerald-500/40',
+        rose: 'bg-rose-500/25 text-rose-300 border-rose-500/40',
+        amber: 'bg-amber-500/25 text-amber-300 border-amber-500/40'
+      };
+      el.className = `text-xs font-bold px-2.5 py-0.5 rounded-full border transition-all ${styles[color] || styles.cyan}`;
+    }
+
+    function showVictoryModal() {
+      const song = SONGS_CATALOG[currentSongIndex];
+      const acc = totalAttempts > 0 ? Math.round((correctAttempts / totalAttempts) * 100) : 100;
+      document.getElementById('victorySongTitle').textContent = song ? song.title : '';
+      document.getElementById('victoryAccuracy').textContent = `${acc}%`;
+      document.getElementById('victoryStreak').textContent = `${maxStreak} 🔥`;
+      openModal('victoryModal');
+    }
+
+    /********************************************************************
+     * 7. DETECCIÓN DE FRECUENCIA POR MICRÓFONO (AUTOCORRELACIÓN EN VIVO)
+     ********************************************************************/
+    async function toggleMicrophone() {
+      if (isMicActive) {
+        stopMicrophone();
+        return;
+      }
+
+      try {
+        ensureAudioContext();
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            autoGainControl: false,
+            noiseSuppression: false
+          }
+        });
+
+        const source = audioCtx.createMediaStreamSource(micStream);
+        analyserNode = audioCtx.createAnalyser();
+        analyserNode.fftSize = 2048;
+        source.connect(analyserNode);
+
+        isMicActive = true;
+        updateMicButtonUI(true);
+        setFeedbackBanner('Micrófono activo: toca tu piano físico cerca del móvil', 'emerald');
+      } catch (err) {
+        console.warn('No se pudo acceder al micrófono:', err);
+        setFeedbackBanner('Permiso de micrófono denegado o sin micrófono. Usa "Probar Pitch" o las teclas.', 'rose');
+      }
+    }
+
+    function stopMicrophone() {
+      isMicActive = false;
+      if (micStream) {
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+      updateMicButtonUI(false);
+      document.getElementById('micDetectedNote').textContent = '--';
+      document.getElementById('micDetectedHz').innerHTML = '0.0 <span class="text-xs font-normal text-slate-400">Hz</span>';
+      document.getElementById('micCentsDiff').textContent = 'Micrófono apagado';
+      document.getElementById('micVolumeBar').style.width = '0%';
+      document.getElementById('micMatchHoldBar').style.width = '0%';
+    }
+
+    function updateMicButtonUI(active) {
+      const btn = document.getElementById('btnToggleMic');
+      const label = document.getElementById('micBtnLabel');
+      const statusBadge = document.getElementById('micStateBadge');
+      const iconDot = document.getElementById('telemetryStatusIcon');
+
+      if (active) {
+        btn.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm transition-all shadow-lg bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-rose-500/25';
+        label.textContent = 'Detener Micrófono (Escuchando...)';
+        statusBadge.textContent = 'EN VIVO';
+        statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        iconDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping';
+      } else {
+        btn.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm transition-all shadow-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 shadow-emerald-500/20';
+        label.textContent = 'Activar Micrófono (Piano Real)';
+        statusBadge.textContent = 'Inactivo';
+        statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400';
+        iconDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-500';
+      }
+    }
+
+    function updateSensitivity(val) {
+      const pct = parseInt(val, 10) || 15;
+      document.getElementById('sensitivityValueLabel').textContent = `${pct}%`;
+      document.getElementById('thresholdMarkerLine').style.left = `${pct}%`;
+      // Mapear 2..60% a RMS 0.004 .. 0.085
+      micSensitivity = (pct / 100) * 0.13;
+    }
+
+    /**
+     * Algoritmo de Autocorrelación con interpolación parabólica
+     * para obtener con alta precisión la frecuencia fundamental en Hz.
+     */
+    function autoCorrelatePitch(buf, sampleRate) {
+      const SIZE = buf.length;
+      let rms = 0;
+      for (let i = 0; i < SIZE; i++) {
+        const val = buf[i];
+        rms += val * val;
+      }
+      rms = Math.sqrt(rms / SIZE);
+
+      // Actualizar medidor visual de volumen
+      const volPct = Math.min(100, Math.round((rms / 0.13) * 100));
+      document.getElementById('micVolumeBar').style.width = `${volPct}%`;
+      document.getElementById('micVolumeDb').textContent = `${volPct}%`;
+
+      // Si la señal está por debajo del umbral de ruido configurado, ignorar
+      if (rms < micSensitivity) {
+        return -1;
+      }
+
+      // Recortar bordes hasta cruce por umbral para mejorar estabilidad
+      let r1 = 0, r2 = SIZE - 1;
+      const thres = 0.2;
+      for (let i = 0; i < SIZE / 2; i++) {
+        if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+      }
+      for (let i = 1; i < SIZE / 2; i++) {
+        if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+      }
+
+      const trimmed = buf.slice(r1, r2);
+      const newSize = trimmed.length;
+      if (newSize < 64) return -1;
+
+      const c = new Float32Array(newSize);
+      for (let i = 0; i < newSize; i++) {
+        let sum = 0;
+        for (let j = 0; j < newSize - i; j++) {
+          sum += trimmed[j] * trimmed[j + i];
+        }
+        c[i] = sum;
+      }
+
+      let d = 0;
+      while (d < newSize - 1 && c[d] > c[d + 1]) {
+        d++;
+      }
+
+      let maxval = -1, maxpos = -1;
+      for (let i = d; i < newSize; i++) {
+        if (c[i] > maxval) {
+          maxval = c[i];
+          maxpos = i;
+        }
+      }
+
+      if (maxpos <= 0 || maxpos >= newSize - 1) return -1;
+
+      // Interpolación parabólica para precisión sub-muestra
+      const x1 = c[maxpos - 1], x2 = c[maxpos], x3 = c[maxpos + 1];
+      const a = (x1 + x3 - 2 * x2) / 2;
+      const b = (x3 - x1) / 2;
+      let T0 = maxpos;
+      if (a) T0 = T0 - b / (2 * a);
+
+      const freq = sampleRate / T0;
+      if (freq < 110 || freq > 2100) return -1;
+      return freq;
+    }
+
+    function frequencyToNearestNote(freq) {
+      const noteStrings = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+      const noteSwapEs = {
+        'C':'Do', 'C#':'Do#', 'D':'Re', 'D#':'Re#', 'E':'Mi', 'F':'Fa',
+        'F#':'Fa#', 'G':'Sol', 'G#':'Sol#', 'A':'La', 'A#':'La#', 'B':'Si'
+      };
+      const midiFloat = 12 * (Math.log(freq / 440) / Math.log(2)) + 69;
+      const midiNum = Math.round(midiFloat);
+      const cents = Math.round((midiFloat - midiNum) * 100);
+      const noteName = noteStrings[midiNum % 12];
+      const octave = Math.floor(midiNum / 12) - 1;
+      const id = `${noteName}${octave}`;
+      const es = `${noteSwapEs[noteName]}${octave}`;
+      return { id, es, cents, freq };
+    }
+
+    // Botón para probar la detección de frecuencia incluso sin micrófono físico
+    function simulateMicNoteHit() {
+      const song = SONGS_CATALOG[currentSongIndex];
+      if (!song || currentNoteIndex >= song.notes.length) return;
+      const targetId = song.notes[currentNoteIndex].note;
+      const noteObj = NOTE_MAP[targetId] || NOTE_MAP['C4'];
+
+      playPianoSound(noteObj.freq, 0.65);
+      document.getElementById('micDetectedNote').textContent = `${noteObj.es} (${noteObj.id})`;
+      document.getElementById('micDetectedNote').className = 'text-xl sm:text-2xl font-extrabold font-mono text-emerald-400 mt-0.5';
+      document.getElementById('micDetectedHz').innerHTML = `${noteObj.freq.toFixed(1)} <span class="text-xs font-normal text-slate-400">Hz</span>`;
+      document.getElementById('micCentsDiff').textContent = 'Afinación exacta (0 cents)';
+      document.getElementById('micMatchHoldBar').style.width = '100%';
+
+      handleUserNoteInput(targetId, 'microphone');
+      setTimeout(() => {
+        document.getElementById('micMatchHoldBar').style.width = '0%';
+      }, 350);
+    }
+
+    /********************************************************************
+     * 8. BUCLE PRINCIPAL DE ANIMACIÓN: CASCADA VISUAL + PITCH DETECTION
+     ********************************************************************/
+    function spawnHitParticles(noteId) {
+      const pos = keyPositions[noteId];
+      if (!pos || !waterfallCanvas) return;
+      const centerX = pos.x + pos.width / 2;
+      const bottomY = waterfallCanvas.height - 6;
+
+      for (let i = 0; i < 14; i++) {
+        hitParticles.push({
+          x: centerX,
+          y: bottomY,
+          vx: (Math.random() - 0.5) * 5,
+          vy: -Math.random() * 4.5 - 1.5,
+          radius: Math.random() * 3.5 + 2,
+          alpha: 1,
+          color: Math.random() > 0.4 ? '#34d399' : '#38bdf8'
+        });
+      }
+    }
+
+    function renderLoop() {
+      // 1. Procesar Micrófono en vivo si está activo
+      if (isMicActive && analyserNode && audioCtx) {
+        const buf = new Float32Array(analyserNode.fftSize);
+        analyserNode.getFloatTimeDomainData(buf);
+        const detectedFreq = autoCorrelatePitch(buf, audioCtx.sampleRate);
+
+        if (detectedFreq !== -1) {
+          const info = frequencyToNearestNote(detectedFreq);
+          const noteEl = document.getElementById('micDetectedNote');
+          noteEl.textContent = `${info.es} (${info.id})`;
+          document.getElementById('micDetectedHz').innerHTML = `${detectedFreq.toFixed(1)} <span class="text-xs font-normal text-slate-400">Hz</span>`;
+          const sign = info.cents >= 0 ? '+' : '';
+          document.getElementById('micCentsDiff').textContent = `Desviación: ${sign}${info.cents} cents`;
+
+          // Comprobar si coincide con la nota objetivo actual
+          const song = SONGS_CATALOG[currentSongIndex];
+          if (song && currentNoteIndex < song.notes.length) {
+            const targetId = song.notes[currentNoteIndex].note;
+            const allowOctave = document.getElementById('octaveFlexibleToggle').checked;
+            const isMatch = (info.id === targetId) ||
+              (allowOctave && info.id.replace(/[0-9]/g, '') === targetId.replace(/[0-9]/g, ''));
+
+            if (isMatch && (performance.now() - lastValidatedTime > 340)) {
+              pitchHoldCounter++;
+              noteEl.className = 'text-xl sm:text-2xl font-extrabold font-mono text-emerald-400 mt-0.5';
+              const holdPct = Math.min(100, Math.round((pitchHoldCounter / 4) * 100));
+              document.getElementById('micMatchHoldBar').style.width = `${holdPct}%`;
+
+              // Tras ~4 frames (~65ms) estables en la frecuencia objetivo, validar como acierto
+              if (pitchHoldCounter >= 4) {
+                pitchHoldCounter = 0;
+                lastValidatedTime = performance.now();
+                handleUserNoteInput(targetId, 'microphone');
+              }
+            } else {
+              pitchHoldCounter = Math.max(0, pitchHoldCounter - 1);
+              noteEl.className = 'text-xl sm:text-2xl font-extrabold font-mono text-cyan-300 mt-0.5';
+              document.getElementById('micMatchHoldBar').style.width = `${Math.round((pitchHoldCounter / 4) * 100)}%`;
+            }
+          }
+        } else {
+          pitchHoldCounter = Math.max(0, pitchHoldCounter - 1);
+          document.getElementById('micMatchHoldBar').style.width = '0%';
+        }
+      }
+
+      // 2. Dibujar el Visualizador de Cascada (Waterfall Highway)
+      drawWaterfallCanvas();
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    function drawWaterfallCanvas() {
+      if (!waterfallCanvas || !waterfallCtx) return;
+      const w = waterfallCanvas.width;
+      const h = waterfallCanvas.height;
+      waterfallCtx.clearRect(0, 0, w, h);
+
+      // Dibujar carriles verticales sutiles alineados con las 14 teclas blancas
+      const whiteNotes = NOTES_DATA.filter(n => !n.isBlack);
+      whiteNotes.forEach((n, idx) => {
+        const pos = keyPositions[n.id];
+        if (!pos) return;
+        waterfallCtx.fillStyle = idx % 2 === 0 ? 'rgba(15, 23, 42, 0.45)' : 'rgba(30, 41, 59, 0.25)';
+        waterfallCtx.fillRect(pos.x, 0, pos.width, h);
+        waterfallCtx.strokeStyle = 'rgba(51, 65, 85, 0.35)';
+        waterfallCtx.beginPath();
+        waterfallCtx.moveTo(pos.x, 0);
+        waterfallCtx.lineTo(pos.x, h);
+        waterfallCtx.stroke();
+      });
+
+      // Línea de impacto brillante en la base del canvas (junto al teclado)
+      waterfallCtx.fillStyle = 'rgba(56, 189, 248, 0.22)';
+      waterfallCtx.fillRect(0, h - 6, w, 6);
+
+      // Dibujar bloques de notas de la canción (la nota actual abajo en la línea de impacto y la cola arriba)
+      const song = SONGS_CATALOG[currentSongIndex];
+      if (song && currentNoteIndex < song.notes.length) {
+        const visibleCount = 7;
+        const slotHeight = (h - 26) / visibleCount;
+
+        for (let offset = visibleCount - 1; offset >= 0; offset--) {
+          const noteIdx = currentNoteIndex + offset;
+          if (noteIdx >= song.notes.length) continue;
+
+          const item = song.notes[noteIdx];
+          const noteObj = NOTE_MAP[item.note] || NOTE_MAP['C4'];
+          const pos = keyPositions[noteObj.id];
+          if (!pos) continue;
+
+          const isCurrent = (offset === 0);
+          const blockH = Math.max(24, slotHeight - 6);
+          const y = h - 10 - (offset + 1) * slotHeight;
+          const x = pos.x + 2;
+          const bw = Math.max(16, pos.width - 4);
+
+          // Sombra y color del bloque
+          waterfallCtx.save();
+          if (isCurrent) {
+            waterfallCtx.shadowColor = 'rgba(56, 189, 248, 0.85)';
+            waterfallCtx.shadowBlur = 14;
+            waterfallCtx.fillStyle = noteObj.isBlack ? '#0284c7' : '#38bdf8';
+          } else {
+            waterfallCtx.fillStyle = noteObj.isBlack ? 'rgba(99, 102, 241, 0.7)' : 'rgba(56, 189, 248, 0.38)';
+          }
+
+          // Rectángulo redondeado
+          roundRect(waterfallCtx, x, y, bw, blockH, 7);
+          waterfallCtx.fill();
+
+          // Borde
+          waterfallCtx.lineWidth = isCurrent ? 2 : 1;
+          waterfallCtx.strokeStyle = isCurrent ? '#e0f2fe' : 'rgba(148, 163, 184, 0.4)';
+          waterfallCtx.stroke();
+
+          // Etiqueta dual dentro del bloque (Español + Americano)
+          waterfallCtx.fillStyle = isCurrent ? '#020617' : '#f8fafc';
+          waterfallCtx.font = isCurrent ? '800 11px Inter, sans-serif' : '600 10px Inter, sans-serif';
+          waterfallCtx.textAlign = 'center';
+          waterfallCtx.textBaseline = 'middle';
+          const labelText = bw > 34 ? `${noteObj.es}` : noteObj.id;
+          waterfallCtx.fillText(labelText, x + bw / 2, y + blockH / 2);
+          waterfallCtx.restore();
+        }
+      }
+
+      // Dibujar y actualizar partículas de acierto
+      for (let i = hitParticles.length - 1; i >= 0; i--) {
+        const p = hitParticles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.035;
+        if (p.alpha <= 0) {
+          hitParticles.splice(i, 1);
+          continue;
+        }
+        waterfallCtx.save();
+        waterfallCtx.globalAlpha = p.alpha;
+        waterfallCtx.fillStyle = p.color;
+        waterfallCtx.beginPath();
+        waterfallCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        waterfallCtx.fill();
+        waterfallCtx.restore();
+      }
+    }
+
+    function roundRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    /********************************************************************
+     * 9. IMPORTACIÓN DE ARCHIVOS .MID / .MIDI Y API ONLINE (THESESSION)
+     ********************************************************************/
+    // Ajusta cualquier número de nota MIDI al rango de nuestras 2 octavas (C4=60 a B5=83)
+    function fitMidiNumberToTwoOctaves(midiNumber) {
+      let m = midiNumber;
+      while (m < 60) m += 12;
+      while (m > 83) m -= 12;
+      const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+      const note = names[m % 12];
+      const oct = Math.floor(m / 12) - 1;
+      return `${note}${oct}`;
+    }
+
+    async function handleMidiUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        let extractedNotes = [];
+
+        if (typeof Midi !== 'undefined') {
+          const midi = new Midi(arrayBuffer);
+          // Buscar la pista con más notas melódicas
+          let bestTrack = midi.tracks[0];
+          midi.tracks.forEach(t => {
+            if (t.notes.length > (bestTrack ? bestTrack.notes.length : 0)) {
+              bestTrack = t;
+            }
+          });
+
+          if (bestTrack && bestTrack.notes.length > 0) {
+            // Filtrar notas simultáneas (quedarnos con la nota superior de los acordes para melodía limpia)
+            let lastTime = -1;
+            bestTrack.notes.slice(0, 120).forEach(n => {
+              if (Math.abs(n.time - lastTime) > 0.06) {
+                extractedNotes.push({
+                  note: fitMidiNumberToTwoOctaves(n.midi),
+                  dur: Math.max(0.5, Math.min(2.5, n.duration * 2))
+                });
+                lastTime = n.time;
+              }
+            });
+          }
+        }
+
+        if (extractedNotes.length === 0) {
+          setFeedbackBanner('El archivo MIDI no contenía notas válidas.', 'rose');
+          return;
+        }
+
+        const cleanName = file.name.replace(/\.(mid|midi)$/i, '');
+        const newSong = {
+          id: 'midi_' + Date.now(),
+          title: `🎹 MIDI: ${cleanName}`,
+          difficulty: 'Importado MIDI',
+          bpm: 108,
+          notes: extractedNotes
+        };
+
+        SONGS_CATALOG.push(newSong);
+        currentSongIndex = SONGS_CATALOG.length - 1;
+        populateSongSelector();
+        restartSong();
+        closeModal('catalogModal');
+        setFeedbackBanner(`Archivo MIDI cargado: ${cleanName} (${extractedNotes.length} notas)`, 'emerald');
+      } catch (err) {
+        console.error('Error al leer archivo MIDI:', err);
+        setFeedbackBanner('Error al procesar el archivo .MIDI', 'rose');
+      }
+    }
+
+    // Buscador conectado a la API pública de TheSession.org (JSON)
+    async function searchOnlineTunes() {
+      const query = document.getElementById('apiSearchInput').value.trim();
+      if (!query) return;
+
+      const resultsBox = document.getElementById('apiSearchResults');
+      const btn = document.getElementById('btnApiSearch');
+      btn.textContent = 'Buscando...';
+      resultsBox.innerHTML = '<div class="text-xs text-cyan-400 py-2">Conectando con TheSession.org API...</div>';
+
+      try {
+        const res = await fetch(`https://thesession.org/tunes/search?q=${encodeURIComponent(query)}&format=json`);
+        const data = await res.json();
+
+        btn.textContent = 'Buscar Online';
+        if (!data.tunes || data.tunes.length === 0) {
+          resultsBox.innerHTML = '<div class="text-xs text-slate-400 py-2">No se encontraron canciones con ese nombre.</div>';
+          return;
+        }
+
+        resultsBox.innerHTML = '';
+        data.tunes.slice(0, 8).forEach(tune => {
+          const row = document.createElement('div');
+          row.className = 'flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 hover:border-cyan-500/40 transition';
+          row.innerHTML = `
+            <div>
+              <div class="text-xs font-bold text-white">${tune.name}</div>
+              <div class="text-[10px] text-slate-400 uppercase">${tune.type || 'Melodía'} • ID #${tune.id}</div>
+            </div>
+            <button onclick="loadTuneFromTheSession(${tune.id}, '${tune.name.replace(/'/g, '')}')" class="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-slate-950 font-bold text-xs transition">
+              Cargar en Piano
+            </button>
+          `;
+          resultsBox.appendChild(row);
+        });
+      } catch (err) {
+        btn.textContent = 'Buscar Online';
+        resultsBox.innerHTML = '<div class="text-xs text-amber-400 py-2">Sin conexión externa en este momento. Puedes usar el importador .MIDI o pegar notas abajo.</div>';
+      }
+    }
+
+    function quickSearchTune(term) {
+      document.getElementById('apiSearchInput').value = term;
+      searchOnlineTunes();
+    }
+
+    async function loadTuneFromTheSession(tuneId, tuneName) {
+      try {
+        const res = await fetch(`https://thesession.org/tunes/${tuneId}?format=json`);
+        const data = await res.json();
+        if (!data.settings || data.settings.length === 0) return;
+
+        const abcString = data.settings[0].abc || '';
+        const parsedNotes = parseAbcToPianoNotes(abcString);
+
+        if (parsedNotes.length > 0) {
+          SONGS_CATALOG.push({
+            id: 'online_' + tuneId,
+            title: `🌐 Online: ${tuneName}`,
+            difficulty: 'Catálogo Cloud',
+            bpm: 110,
+            notes: parsedNotes
+          });
+          currentSongIndex = SONGS_CATALOG.length - 1;
+          populateSongSelector();
+          restartSong();
+          closeModal('catalogModal');
+          setFeedbackBanner(`Melodía online cargada: ${tuneName}`, 'emerald');
+        }
+      } catch (e) {
+        console.warn('Error descargando partitura ABC:', e);
+      }
+    }
+
+    // Convierte notación ABC estándar en notas dentro de nuestras 2 octavas (C4–B5)
+    function parseAbcToPianoNotes(abc) {
+      const notes = [];
+      // En ABC: C D E F G A B son octava 4, c d e f g a b son octava 5
+      const regex = /(\^|_)?([A-Ga-g])/g;
+      let match;
+      while ((match = regex.exec(abc)) !== null && notes.length < 64) {
+        const accidental = match[1];
+        const letter = match[2];
+        const isUpper = letter === letter.toUpperCase();
+        const baseLetter = letter.toUpperCase();
+        const octave = isUpper ? 4 : 5;
+
+        let candidate = `${baseLetter}${ (accidental === '^' && ['C','D','F','G','A'].includes(baseLetter)) ? '#' : '' }${octave}`;
+        if (!NOTE_MAP[candidate]) candidate = `${baseLetter}${octave}`;
+        if (NOTE_MAP[candidate]) {
+          notes.push({ note: candidate, dur: 1 });
+        }
+      }
+      return notes;
+    }
+
+    // Permite pegar texto libre en Español o Cifrado Americano
+    function loadCustomNoteString() {
+      const raw = document.getElementById('customNotesInput').value.trim();
+      if (!raw) return;
+
+      const esMap = {
+        'DO':'C', 'DO#':'C#', 'RE':'D', 'RE#':'D#', 'MI':'E',
+        'FA':'F', 'FA#':'F#', 'SOL':'G', 'SOL#':'G#', 'LA':'A', 'LA#':'A#', 'SI':'B'
+      };
+
+      const tokens = raw.split(/[\s,;]+/);
+      const parsed = [];
+
+      tokens.forEach(tok => {
+        let up = tok.toUpperCase();
+        // Extraer octava (4 o 5, por defecto 4)
+        let oct = '4';
+        if (up.endsWith('5')) { oct = '5'; up = up.slice(0, -1); }
+        else if (up.endsWith('4')) { oct = '4'; up = up.slice(0, -1); }
+
+        const letter = esMap[up] || up;
+        const id = `${letter}${oct}`;
+        if (NOTE_MAP[id]) {
+          parsed.push({ note: id, dur: 1 });
+        }
+      });
+
+      if (parsed.length > 0) {
+        SONGS_CATALOG.push({
+          id: 'custom_' + Date.now(),
+          title: `✍️ Melodía Personalizada (${parsed.length} notas)`,
+          difficulty: 'Personalizada',
+          bpm: 100,
+          notes: parsed
+        });
+        currentSongIndex = SONGS_CATALOG.length - 1;
+        populateSongSelector();
+        restartSong();
+        closeModal('catalogModal');
+        setFeedbackBanner('Melodía personalizada cargada con éxito', 'emerald');
+      }
+    }
+
+    /********************************************************************
+     * 10. MODALES, UTILIDADES Y EVENTOS DE TECLADO FÍSICO DE PC
+     ********************************************************************/
+    function openModal(id) {
+      document.getElementById(id).classList.remove('hidden');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    function copyGithubWorkflow() {
+      const code = document.getElementById('workflowYamlCode').textContent;
+      const temp = document.createElement('textarea');
+      temp.value = code;
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand('copy');
+      document.body.removeChild(temp);
+
+      const btn = document.getElementById('btnCopyWorkflow');
+      btn.textContent = '¡Copiado!';
+      setTimeout(() => { btn.textContent = 'Copiar YAML'; }, 2000);
+    }
+
+    function resizeWaterfallCanvas() {
+      if (!waterfallCanvas) return;
+      const rect = waterfallCanvas.parentElement.getBoundingClientRect();
+      waterfallCanvas.width = rect.width;
+      waterfallCanvas.height = rect.height;
+      measureKeyPositions();
+    }
+
+    // Soporte de teclado de ordenador para tocar sin ratón
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+      const keyChar = e.key.toUpperCase();
+      const found = NOTES_DATA.find(n => n.pcKey === keyChar);
+      if (found) {
+        const el = document.getElementById(`key-${found.id}`);
+        if (el) el.classList.add('key-active');
+        handleUserNoteInput(found.id, 'keyboard');
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const keyChar = e.key.toUpperCase();
+      const found = NOTES_DATA.find(n => n.pcKey === keyChar);
+      if (found) {
+        const el = document.getElementById(`key-${found.id}`);
+        if (el) el.classList.remove('key-active');
+      }
+    });
+
+    window.addEventListener('resize', resizeWaterfallCanvas);
+
+    // Inicialización al cargar la ventana
+    window.onload = function () {
+      waterfallCanvas = document.getElementById('waterfallCanvas');
+      waterfallCtx = waterfallCanvas.getContext('2d');
+
+      buildPianoKeyboard();
+      populateSongSelector();
+      resizeWaterfallCanvas();
+      restartSong();
+      requestAnimationFrame(renderLoop);
+    };
+  </script>
+</body>
+</html>
