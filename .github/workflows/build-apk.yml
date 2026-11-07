@@ -1,0 +1,65 @@
+name: Crear APK de PianoSense
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 1. Descargar codigo del repositorio
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 3. Configurar Java JDK 17 para Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 4. Empaquetar Web en proyecto Android con Capacitor
+        run: |
+          mkdir -p www
+          cp index.html www/index.html
+          npm init -y
+          npm install @capacitor/core@^6.0.0 @capacitor/cli@^6.0.0 @capacitor/android@^6.0.0
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.pianosense.trainer",
+            "appName": "PianoSense",
+            "webDir": "www",
+            "server": {
+              "androidScheme": "https"
+            }
+          }
+          EOF
+          npx cap add android
+          npx cap sync android
+
+      - name: 5. Activar Microfono y Pantalla Horizontal en Android
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n</manifest>|g' "$MANIFEST"
+          sed -i 's|android:name=".MainActivity"|android:name=".MainActivity" android:screenOrientation="landscape"|g' "$MANIFEST"
+
+      - name: 6. Compilar archivo APK con Gradle
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: 7. Publicar APK directo en Releases del repositorio
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "PianoSense APK v1.0.${{ github.run_number }}"
+          files: android/app/build/outputs/apk/debug/app-debug.apk
